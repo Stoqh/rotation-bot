@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bot rotation — simulation</title>
+<style>
+  :root { --bg:#f7f6f2; --card:#fff; --txt:#1f1e1b; --mut:#6b6a64; --line:#e4e2da; --bot:#1d9e75; --mix:#7f77dd; --btc:#d85a30; --warn:#fbeaea; --warnt:#8a1f1f; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1b1b19; --card:#252522; --txt:#ecebe6; --mut:#a3a29b; --line:#3a3935; --warn:#4a1b1b; --warnt:#f5c4c4; } }
+  * { box-sizing:border-box } body { margin:0; font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--txt); }
+  main { max-width:960px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { font-size:22px; font-weight:600; margin:0 0 4px } h2 { font-size:17px; font-weight:600; margin:28px 0 10px }
+  .mut { color:var(--mut); font-size:14px } .badge { display:inline-block; background:#faeeda; color:#633806; border-radius:6px; padding:2px 8px; font-size:13px }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-top:16px }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px }
+  .card b { font-size:24px; font-weight:600 } .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px }
+  .now { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-top:16px }
+  .warn { background:var(--warn); color:var(--warnt); border-radius:12px; padding:12px 16px; margin-top:16px }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; font-size:14px }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line) } th { color:var(--mut); font-weight:500 }
+  .chartbox { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; height:340px }
+</style>
+</head>
+<body>
+<main>
+  <h1>Bot rotation hebdomadaire</h1>
+  <div class="mut"><span class="badge">Simulation : aucun argent réel</span> &nbsp; 1 actif, 12 mois · 1000 € fictifs · <span id="maj"></span></div>
+  <div id="warn"></div>
+  <div class="now" id="now">Chargement…</div>
+  <div class="cards" id="cards"></div>
+  <h2>Valeur des 3 portefeuilles (€)</h2>
+  <div class="chartbox"><canvas id="chart"></canvas></div>
+  <h2>Trades du bot</h2>
+  <table><thead><tr><th>Décision</th><th>Exécution</th><th>De</th><th>Vers</th><th>Frais simulés</th></tr></thead><tbody id="trades"></tbody></table>
+  <h2>Dernières semaines</h2>
+  <table><thead><tr><th>Semaine du</th><th>Choix</th><th>BTC 12 m</th><th>ETH 12 m</th><th>Actions 12 m</th></tr></thead><tbody id="weeks"></tbody></table>
+  <p class="mut" id="src"></p>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+const N = {BTC:"Bitcoin", ETH:"Ether", ACTIONS:"Actions mondiales", LIQUIDE:"Liquide"};
+const pct = x => (x>=0?"+":"") + (x*100).toFixed(1).replace(".",",") + " %";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+fetch("data.json?" + Date.now()).then(r => r.json()).then(d => {
+  document.getElementById("maj").textContent = "mis à jour " + (d.mis_a_jour || "?");
+  if (d.problemes && d.problemes.length)
+    document.getElementById("warn").innerHTML = '<div class="warn"><b>Donnée manquante</b> : ' + d.problemes.map(esc).join(" · ") + "<br>Le bot réessaie au prochain lancement.</div>";
+  if (!d.started) { document.getElementById("now").textContent = "Pas encore démarré : première décision à la clôture du premier vendredi à partir du " + d.debut + ", exécutée le jour de bourse suivant."; return; }
+  document.getElementById("now").innerHTML = "<b>Position actuelle : " + esc(N[d.holding]) + "</b><br>" + esc(d.raison) + '<br><span class="mut">Dernières données : ' + esc(d.last_data) + "</span>";
+  const lab = {bot:["Bot rotation","var(--bot)"], mix:["Mélange fixe 1/3","var(--mix)"], btc:["BTC seul","var(--btc)"]};
+  document.getElementById("cards").innerHTML = Object.entries(lab).map(([k,[n,c]]) => {
+    const s = d.stats[k];
+    return `<div class="card"><div><span class="dot" style="background:${c}"></span>${n}</div><b>${s.valeur.toFixed(0)} €</b><div>${pct(s.gain)} · pire baisse ${pct(s.pire_baisse)}</div></div>`;
+  }).join("");
+  document.getElementById("trades").innerHTML = d.trades.length ? d.trades.slice().reverse().map(t =>
+    `<tr><td>${t.decision}</td><td>${t.execution}</td><td>${N[t.ancien]}</td><td><b>${N[t.actif]}</b></td><td>${t.frais_eur.toFixed(2)} €</td></tr>`).join("")
+    : '<tr><td colspan="5" class="mut">Aucun trade pour l\'instant.</td></tr>';
+  document.getElementById("weeks").innerHTML = d.weeks.slice().reverse().map(w =>
+    `<tr><td>${w.decision}</td><td><b>${N[w.actif]}</b></td><td>${pct(w.scores.BTC)}</td><td>${pct(w.scores.ETH)}</td><td>${pct(w.scores.ACTIONS)}</td></tr>`).join("");
+  document.getElementById("src").textContent = "Sources : " + Object.entries(d.sources||{}).map(([k,v]) => k + " = " + v).join(" ; ") + ". Frais simulés : crypto 0,50 % par ordre, actions 0,25 %.";
+  const css = getComputedStyle(document.documentElement), col = v => css.getPropertyValue(v).trim();
+  new Chart(document.getElementById("chart"), { type:"line",
+    data:{ labels:d.curve.map(c=>c.date), datasets:Object.entries(lab).map(([k,[n,c]]) => ({label:n, data:d.curve.map(x=>x[k]), borderColor:col(c.slice(4,-1)), pointRadius:0, borderWidth:2})) },
+    options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:"index", intersect:false},
+      plugins:{legend:{labels:{color:col("--txt")}}}, scales:{x:{ticks:{color:col("--mut"), maxTicksLimit:8}, grid:{color:col("--line")}}, y:{ticks:{color:col("--mut")}, grid:{color:col("--line")}}} } });
+}).catch(e => { document.getElementById("now").textContent = "Impossible de lire les données (" + e + ")."; });
+</script>
+</body>
+</html>
