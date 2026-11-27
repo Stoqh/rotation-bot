@@ -1,0 +1,54 @@
+name: Bot rotation (simulation)
+
+on:
+  schedule:
+    - cron: "17 7 * * *"     # tous les jours vers 8 h (heure de Paris)
+    - cron: "17 22 * * *"    # et vers 23 h : rattrapage si le premier lancement a raté
+  workflow_dispatch:
+    inputs:
+      test_notification:
+        description: "Envoyer seulement une notification de test"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bot
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Tests (le bot ne tourne pas si un test échoue)
+        run: python -m pytest -q tests
+      - name: Notification de test
+        if: ${{ inputs.test_notification }}
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m bot.run --test
+      - name: Lancement du bot
+        if: ${{ !inputs.test_notification }}
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DASHBOARD_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+        run: python -m bot.run
+      - name: Sauvegarde des résultats
+        if: ${{ !inputs.test_notification }}
+        run: |
+          git config user.name "rotation-bot"
+          git config user.email "rotation-bot@users.noreply.github.com"
+          git add docs/data.json state/state.json
+          git diff --cached --quiet || git commit -m "Mise à jour simulation $(date -u +%F)"
+          git pull --rebase --autostash || true
+          git push
